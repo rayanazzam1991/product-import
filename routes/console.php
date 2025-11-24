@@ -1,8 +1,11 @@
 <?php
 
-use Illuminate\Foundation\Inspiring;
-use Illuminate\Support\Facades\Artisan;
+use App\Enum\ProductSourceEnum;
+use App\Jobs\FetchProductsJob;
+use Illuminate\Support\Facades\Schedule;
 
-Artisan::command('inspire', function () {
-    $this->comment(Inspiring::quote());
-})->purpose('Display an inspiring quote');
+Schedule::call(function () {
+    FetchProductsJob::dispatch(ProductSourceEnum::MOCK_SUPPLIER->value);
+})
+    ->dailyAt('00:00')// Run at 12:00 AM
+    ->timezone('Asia/Baghdad');
