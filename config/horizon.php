@@ -262,12 +262,18 @@ return [
                     'product-process-warehouse',
                     'product-process-inventory',
                     'product-process-notify-customer',
-                    'product-remove-outdated'
+                    'product-remove-outdated',
                 ],
-                'balance' => 'simple',
-                'processes' => 20,         // 20 concurrent workers
+                'balance' => 'auto',        // Changed from 'simple' for better distribution
+                'processes' => 100,          // Increased to handle 100 concurrent batches
+                'minProcesses' => 20,        // Minimum workers during low load
+                'maxProcesses' => 150,       // Allow scaling up during peak times
+                'balanceMaxShift' => 10,     // Workers to shift per iteration
+                'balanceCooldown' => 3,      // Seconds between balance operations
                 'tries' => 3,
                 'nice' => 0,
+                'timeout' => 60,             // Set appropriate timeout (2s job + buffer)
+                'memory' => 256,             // Memory limit per worker in MB
             ],
         ],
     ],

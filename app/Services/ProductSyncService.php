@@ -3,122 +3,129 @@
 namespace App\Services;
 
 use App\DTOs\NormalizedProductDTO;
-use App\Events\JobProcessing;
 use App\Jobs\IntegrateWithYallaBuyInventoryManagementJob;
 use App\Jobs\NotifyCustomerBackToStockJob;
 use App\Jobs\ProcessProductJob;
-use App\Jobs\RemoveOutdatedProducts;
-use App\Jobs\YallaConnecntWebhookJob;
+use App\Jobs\YallaConnectWebhookJob;
 use App\Models\Product;
 use App\Models\StagingProduct;
-use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Casts\Json;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
-
 use Illuminate\Bus\Batch;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 readonly class ProductSyncService
 {
-    public function __construct(
-        private ProductRelationSyncService $productRelationSyncService
-    ) {}
-
     public function storeDataIntoStagingTable(string $externalProductsJson): void
     {
         $stagingBatch = StagingProduct::query()->create([
-            'products_json' => $externalProductsJson,
+            'raw_payload' => $externalProductsJson,
         ]);
 
         ProcessProductJob::dispatch($stagingBatch->id);
 
     }
 
-    public function syncFromExternalApi(string $externalProductsJson, int $stagingProductId): array
+    /**
+     * @throws Throwable
+     */
+    public function syncFromExternalApi(string $externalProductsJson, int $stagingId): array
     {
+        Log::info('syncFromExternalApi');
+        $startedAt = now();
+        $staging = StagingProduct::findOrFail($stagingId);
 
-        $externalProducts = Json::decode($externalProductsJson);
-        $overallStart = now();
-        $start = Carbon::now();
-        $syncedIds = [];
-        $allJobs = [];
+        $externalProducts = json_decode($externalProductsJson, true);
 
-        $stagingProduct = StagingProduct::query()->find($stagingProductId);
+        $staging->update([
+            'total_items' => count($externalProducts),
+            'started_at' => now(),
+            'status' => 'processing',
+        ]);
 
-        DB::beginTransaction();
+        foreach ($externalProducts as $rawProduct) {
 
-        try {
-            foreach ($externalProducts as $rawProduct) {
-                $dto = $this->normalizeExternalProduct($rawProduct);
+            // Save raw product to staging table
+            $item = $staging->items()->create([
+                'raw_product' => $rawProduct,
+                'status' => 'processing',
+                'started_at' => now(),
+            ]);
 
-                // Remember that this product was synced
-                $syncedIds[] = $dto->id;
+            // Build DTO
+            $dto = $this->normalizeExternalProduct($rawProduct);
 
-                // Insert/Update product row
-                $dbRow = $dto->toDatabaseRow();
-                $dbRow['created_at'] = $start;
-                $dbRow['updated_at'] = $start;
+            // Insert/Update product row
+            $dbRow = $dto->toDatabaseRow();
+            $dbRow['created_at'] = $startedAt;
+            $dbRow['updated_at'] = $startedAt;
 
-                Product::updateOrCreate(
-                    ['id' => $dto->id],
-                    $dbRow
-                );
+            // Create job batch for this product
+            Bus::batch([
+                new NotifyCustomerBackToStockJob($dto),
+                new YallaConnectWebhookJob($dto),
+                new IntegrateWithYallaBuyInventoryManagementJob($dto),
+            ])
+                ->then(function () use ($dto, $dbRow, $item, $staging) {
 
-                // Fetch the model and sync relations (same logic used by CSV import)
-                $product = Product::find($dto->id);
-                $this->productRelationSyncService->sync($product, $dto->variations, $dto->warehouses);
-                $allJobs[] = [
-                    new NotifyCustomerBackToStockJob(),
-                    new YallaConnecntWebhookJob(),
-                    new IntegrateWithYallaBuyInventoryManagementJob(),
-                ];
+                    DB::transaction(function () use ($dto, $dbRow, $item) {
 
-            }
+                        // Persist product ONLY after all jobs succeeded
+                        Product::updateOrCreate(
+                            ['id' => $dto->id],
+                            $dbRow
+                        );
 
-            DB::commit();
-            // Create a batch for this product
-            Log::info("allJobs",$allJobs);
-            $batchStart = now();
-            Bus::batch($allJobs)
-                ->name("product-{$product->id}-sync")
-                ->then(function (Batch $batch) use ($product, $batchStart,$stagingProduct) {
-                    $duration = $batchStart->diffInSeconds(now());
-                    Log::info("Product {$product->id} full async processing took {$duration} seconds");
-                    // Optional: save to product record
-                    $stagingProduct->update([
-                        'async_processed_in' => $duration,
-                        'status'=>'done'
-                    ]);
+                        $product = Product::find($dto->id);
+
+                        /** @var ProductRelationSyncService $relationService */
+                        $relationService = app(ProductRelationSyncService::class);
+                        $relationService->syncProductRelations(product: $product, variationsData:  $dto->variations, warehouseData:  $dto->variations);
+
+                        $item->update([
+                            'status' => 'done',
+                            'finished_at' => now(),
+                        ]);
+                    });
+
+                    // Update staging progress
+                    $staging->increment('processed_items');
+
+                    if ($staging->processed_items === $staging->total_items) {
+                        $staging->update([
+                            'status' => 'done',
+                            'finished_at' => now(),
+                        ]);
+                    }
+
                 })
-                ->catch(function (Batch $batch, \Throwable $e) use ($product) {
-                    Log::error("Batch {$batch->id} failed for product {$product->id}", [
-                        'error' => $e->getMessage(),
+                ->catch(function ($e) use ($item, $staging) {
+
+                    Log::error('Product batch failed: '.$e->getMessage());
+
+                    $item->update([
+                        'status' => 'failed',
+                        'error_message' => $e->getMessage(),
+                        'finished_at' => now(),
                     ]);
+
+                    $staging->update(['status' => 'failed']);
                 })
+                ->name("ProductSync_{$dto->id}")
                 ->dispatch();
-
-            RemoveOutdatedProducts::dispatch($syncedIds);
-
-            DB::commit();
-            $overallDuration = $overallStart->diffInSeconds(now());
-            Log::info("ALL PRODUCTS SYNC started at {$overallStart}, took {$overallDuration} seconds in dispatching batches");
-
-            return [
-                'success' => true,
-                'synced' => count($syncedIds),
-                'dispatch_duration_seconds' => $overallDuration,
-            ];
-
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            Log::error('syncFromExternalApi error', ['message' => $e->getMessage()]);
-            return [
-                'success' => false,
-                'error' => $e->getMessage(),
-            ];
         }
+
+        $totalDuration = $startedAt->diffInSeconds(now());
+
+        return [
+            'success' => true,
+            'message' => 'Product sync started asynchronously.',
+            'total_products' => count($externalProducts),
+            'sync_started_at' => $startedAt,
+            'sync_duration_seconds' => $totalDuration,
+            'staging_id' => $staging->id,
+        ];
     }
 
     private function normalizeExternalProduct(array $raw): NormalizedProductDTO

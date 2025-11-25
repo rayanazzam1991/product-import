@@ -16,7 +16,7 @@ class ProductsController extends Controller
             'productVariations.options.attribute', // To get the attribute name
             'productVariations.inventories',
             'productVariations.inventories.warehouse',
-        ])->get();
+        ])->paginate(10);
 
         return view('products.index', compact('products'));
     }

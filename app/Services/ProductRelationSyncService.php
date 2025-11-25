@@ -14,15 +14,28 @@ use Illuminate\Support\Facades\DB;
 
 class ProductRelationSyncService
 {
-    public function sync(Product $product, array $variationsData, array $warehouseData)
+    /**
+     * Sync variations, options, and inventory for a single product.
+     * This function is now fully unified and flexible.
+     *
+     * @param  Product  $product  The product model to sync.
+     * @param  array  $variationsData  The variations and attributes data.
+     * @param  array  $warehouseData  The warehouse and inventory data.
+     */
+    public function syncProductRelations(Product $product, array $variationsData, array $warehouseData): void
     {
+        // The main logic is wrapped in a transaction
         DB::transaction(function () use ($product, $variationsData, $warehouseData) {
 
-            // Reset all relations for this product
+            // --- 0. CLEANUP (Using the approach from both) ---
+            // Remove old entries related to this product before syncing new ones
             ProductVariation::where('product_id', $product->id)->delete();
             ProductOption::where('product_id', $product->id)->delete();
 
-            /** 1. ATTRIBUTES */
+            /** ------------------------------------
+             * 1. ATTRIBUTES + VALUES
+             * (Identical in both original functions)
+             * ------------------------------------ */
             $attributeIdMap = [];
 
             foreach ($variationsData['attributes'] as $attr) {
@@ -37,47 +50,62 @@ class ProductRelationSyncService
                 }
             }
 
-            /** 2. PRODUCT OPTIONS */
+            /** ------------------------------------
+             * 2. PRODUCT OPTIONS
+             * (Using the safer updateOrCreate from the first function)
+             * ------------------------------------ */
             $optionIdMap = [];
 
             foreach ($variationsData['attributes'] as $attr) {
                 foreach ($attr['values'] as $value) {
-                    $opt = ProductOption::create([
-                        'product_id' => $product->id,
-                        'product_attribute_id' => $attributeIdMap[$attr['name']],
-                        'value' => $value,
-                    ]);
+                    // Use updateOrCreate for safety, as in the first function
+                    $opt = ProductOption::updateOrCreate(
+                        [
+                            'product_id' => $product->id,
+                            'product_attribute_id' => $attributeIdMap[$attr['name']],
+                            'value' => $value,
+                        ],
+                        [
+                            // Optional: Include any other updatable fields here if needed
+                        ]
+                    );
 
                     $optionIdMap["{$attr['name']}:{$value}"] = $opt->id;
                 }
             }
 
-            /** 3. PRODUCT VARIATIONS */
-            $variationIdMap = [];
+            /** ------------------------------------
+             * 3. PRODUCT VARIATIONS
+             * (Using the default 'active' = true from the first function)
+             * ------------------------------------ */
+            $variationIdMap = []; // SKU → ID
 
             foreach ($variationsData['variations'] as $v) {
                 $variation = ProductVariation::create([
                     'product_id' => $product->id,
                     'sku' => $v['sku'],
                     'price' => $v['price'],
-                    'active' => $v['active'],
+                    'active' => $v['active'] ?? true, // Default to true if not specified (First function logic)
                 ]);
 
                 $variationIdMap[$v['sku']] = $variation->id;
 
-                // Option linking
-                foreach ($v['options'] as $attr => $val) {
-                    $key = "$attr:$val";
-                    if (isset($optionIdMap[$key])) {
+                // Link options
+                foreach ($v['options'] as $attr => $value) {
+                    $optionKey = "$attr:$value";
+                    if (isset($optionIdMap[$optionKey])) {
                         ProductOptionVariation::create([
-                            'product_option_id' => $optionIdMap[$key],
+                            'product_option_id' => $optionIdMap[$optionKey],
                             'product_variation_id' => $variation->id,
                         ]);
                     }
                 }
             }
 
-            /** 4. WAREHOUSE INVENTORIES */
+            /** ------------------------------------
+             * 4. GLOBAL WAREHOUSES + INVENTORIES
+             * (Logic is essentially the same, using the passed array)
+             * ------------------------------------ */
             if ($warehouseData && isset($warehouseData['warehouses'])) {
 
                 foreach ($warehouseData['warehouses'] as $w) {
@@ -87,22 +115,25 @@ class ProductRelationSyncService
                         'location' => $w['location'] ?? null,
                     ]);
 
-                    foreach ($w['inventories'] as $inv) {
-                        $sku = $inv['variation_sku'];
+                    if (isset($w['inventories'])) {
+                        foreach ($w['inventories'] as $inv) {
 
-                        if (! isset($variationIdMap[$sku])) {
-                            continue;
+                            $variationSku = $inv['variation_sku'];
+
+                            if (! isset($variationIdMap[$variationSku])) {
+                                continue; // Skip if variation was not processed
+                            }
+
+                            WarehouseInventory::updateOrCreate(
+                                [
+                                    'warehouse_id' => $warehouse->id,
+                                    'product_variation_id' => $variationIdMap[$variationSku],
+                                ],
+                                [
+                                    'quantity' => $inv['quantity'],
+                                ]
+                            );
                         }
-
-                        WarehouseInventory::updateOrCreate(
-                            [
-                                'warehouse_id' => $warehouse->id,
-                                'product_variation_id' => $variationIdMap[$sku],
-                            ],
-                            [
-                                'quantity' => $inv['quantity'],
-                            ]
-                        );
                     }
                 }
             }

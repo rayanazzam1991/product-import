@@ -6,6 +6,7 @@ use App\Models\StagingProduct;
 use App\Services\ProductSyncService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
 
 class ProcessProductJob implements ShouldQueue
 {
@@ -25,7 +26,23 @@ class ProcessProductJob implements ShouldQueue
      */
     public function handle(): void
     {
-        $productJson = StagingProduct::query()->find($this->stagingBatch);
-        app(ProductSyncService::class)->syncFromExternalApi($productJson->products_json,$this->stagingBatch);
+        $stagingProducts = StagingProduct::query()->get();
+        Log::info("start product processing");
+        $stagingProducts->each(function ($staging) {
+            if($staging->status == 'processing'){
+                Log::info("End product processing");
+                if ($staging->processed_products >= $staging->total_products) {
+                    $staging->update([
+                        'status' => 'done',
+                        'finished_at' => now()
+                    ]);
+                }
+            }
+            if ($staging->status == 'pending'){
+                Log::info('stagingBatch', [$this->stagingBatch]);
+                app(ProductSyncService::class)->syncFromExternalApi($staging->raw_payload, $this->stagingBatch);
+            }
+
+        });
     }
 }

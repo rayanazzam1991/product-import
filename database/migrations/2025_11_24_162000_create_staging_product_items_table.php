@@ -11,12 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('staging_products', function (Blueprint $table) {
+        Schema::create('staging_product_items', function (Blueprint $table) {
             $table->id();
-            $table->longText('raw_payload');
+            $table->foreignId('staging_product_id')->nullable()->constrained();
+            $table->longText('raw_product');
             $table->string('status')->default('pending'); // pending, processing, done, failed
-            $table->integer('total_items')->default(0);
-            $table->integer('processed_items')->default(0);
+            $table->string('error_message')->nullable();
             $table->timestamp('started_at')->nullable();
             $table->timestamp('finished_at')->nullable();
             $table->timestamps();
@@ -28,6 +28,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('staging_products');
+        Schema::dropIfExists('staging_product_items');
     }
 };

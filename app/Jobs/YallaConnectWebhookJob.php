@@ -7,9 +7,9 @@ use Illuminate\Bus\Batchable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
-class YallaConnecntWebhookJob implements ShouldQueue
+class YallaConnectWebhookJob implements ShouldQueue
 {
-    use Queueable,Batchable;
+    use Batchable,Queueable;
 
     /**
      * Create a new job instance.

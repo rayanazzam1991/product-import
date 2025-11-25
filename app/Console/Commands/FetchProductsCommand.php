@@ -5,7 +5,6 @@ namespace App\Console\Commands;
 use App\Enum\ProductSourceEnum;
 use App\Jobs\FetchProductsJob;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Log;
 
 class FetchProductsCommand extends Command
 {
@@ -32,7 +31,6 @@ class FetchProductsCommand extends Command
      */
     public function handle(): void
     {
-        Log::info('FetchProductsCommand');
-        FetchProductsJob::dispatchSync(ProductSourceEnum::MOCK_SUPPLIER->value);
+        FetchProductsJob::dispatch(ProductSourceEnum::MOCK_SUPPLIER->value);
     }
 }

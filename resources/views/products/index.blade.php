@@ -57,7 +57,6 @@
                         </td>
                     </tr>
 
-                    <!-- Nested Row for Variations -->
                     <tr id="variations-{{ $product->id }}" class="hidden bg-gray-50">
                         <td colspan="4" class="p-6">
                             @include('products.partials.variations-table', ['variations' => $product->productVariations])
@@ -67,6 +66,12 @@
                 </tbody>
             </table>
         </div>
+
+        {{-- Add Laravel Pagination Links below the table --}}
+        <div class="mt-8">
+            {{ $products->links() }}
+        </div>
+
     </div>
 @endsection
 

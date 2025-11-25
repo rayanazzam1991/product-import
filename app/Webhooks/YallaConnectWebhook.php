@@ -3,7 +3,6 @@
 namespace App\Webhooks;
 
 use App\Contracts\WebhookNotification;
-use Illuminate\Support\Facades\Log;
 
 class YallaConnectWebhook implements WebhookNotification
 {

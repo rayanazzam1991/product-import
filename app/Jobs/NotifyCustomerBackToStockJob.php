@@ -8,7 +8,7 @@ use Illuminate\Foundation\Queue\Queueable;
 
 class NotifyCustomerBackToStockJob implements ShouldQueue
 {
-    use Queueable,Batchable;
+    use Batchable,Queueable;
 
     /**
      * Create a new job instance.
@@ -23,8 +23,6 @@ class NotifyCustomerBackToStockJob implements ShouldQueue
      */
     public function handle(): void
     {
-        $zero = 0;
-       $var = 100/$zero;
         usleep(2 * 1000 * 1000); // sleep for 2 seconds
     }
 }

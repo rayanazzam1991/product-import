@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Contracts\FetchProductsServiceInterface;
 use App\Events\ProductFetchedEvent;
+use App\Models\StagingProduct;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
 
@@ -20,6 +21,7 @@ class FetchProductsJob
      */
     public function handle(): void
     {
+
 
         $fetchProductService = app(FetchProductsServiceInterface::class, ['source' => $this->productSource]);
 

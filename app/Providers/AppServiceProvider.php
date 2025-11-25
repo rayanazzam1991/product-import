@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Contracts\FetchProductsServiceInterface;
 use App\Enum\ProductSourceEnum;
 use App\Services\FetchMockSupplierService;
+use Illuminate\Pagination\Paginator;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -32,5 +33,7 @@ class AppServiceProvider extends ServiceProvider
                 default => throw new \Exception("Unsupported products api source: {$productApiSource}"),
             };
         });
+
+        Paginator::useTailwind();
     }
 }

@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Contracts\IntegrateWithProcurementSystem;
-use Illuminate\Support\Facades\Log;
 
 readonly class IntegrateWithYallaBuyInventoryManagement implements IntegrateWithProcurementSystem
 {

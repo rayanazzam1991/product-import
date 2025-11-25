@@ -12,13 +12,13 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\Console\Command\Command as CommandAlias;
 
-class ImportProducts extends Command
+class ImportProductsOldStructure extends Command
 {
     public function __construct(private readonly ImportProductService $importProductService )
     {
         parent::__construct();
     }
-    protected $signature = 'app:import-products {--chunk=500}';
+    protected $signature = 'app:import-products-old {--chunk=500}';
 
     protected $description = 'Import products, variations, attributes, options, and warehouse inventories.';
 
@@ -38,6 +38,7 @@ class ImportProducts extends Command
 
         $chunk = [];
         $total = 0;
+        $chunkCount = 0; // Initialize chunk counter
 
         try {
             foreach ($this->importProductService->getRecords($filePath) as $record) {
@@ -50,15 +51,23 @@ class ImportProducts extends Command
 
                 if (count($chunk) >= $chunkSize) {
                     $this->importProductService->insertProducts($chunk);
+
+                    $chunkCount++; // Increment chunk counter
+                    $this->line("✅ Chunk #$chunkCount (Items: ".count($chunk).") added. Total processed so far: $total"); // <--- ADDED LINE
+
                     // Process relations for the current chunk immediately after insert
-                    $this->importProductService->syncAllProductsRelations($chunk);
+//                    $this->importProductService->syncAllProductsRelations($chunk);
                     $chunk = [];
                 }
             }
 
             if (! empty($chunk)) {
                 $this->importProductService->insertProducts($chunk);
-                $this->importProductService->syncAllProductsRelations($chunk);
+
+                $chunkCount++; // Increment chunk counter for the final chunk
+                $this->line("✅ Final Chunk #$chunkCount (Items: ".count($chunk).") added. Total processed so far: $total"); // <--- ADDED LINE
+
+//                $this->importProductService->syncAllProductsRelations($chunk);
             }
 
             // Cleanup: remove products not updated in this import

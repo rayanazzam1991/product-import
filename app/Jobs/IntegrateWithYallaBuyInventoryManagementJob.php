@@ -9,7 +9,7 @@ use Illuminate\Foundation\Queue\Queueable;
 
 class IntegrateWithYallaBuyInventoryManagementJob implements ShouldQueue
 {
-    use Queueable,Batchable;
+    use Batchable,Queueable;
 
     /**
      * Create a new job instance.
